@@ -1,0 +1,27 @@
+{
+  "name": "aelisse",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0"
+  },
+  "bin": {
+    "aelisse": "./src/orchestrator.ts"
+  },
+  "scripts": {
+    "explore": "bun run src/orchestrator.ts",
+    "evals": "bun run evals/index.ts",
+    "server": "bun run src/mcp/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  }
+}
