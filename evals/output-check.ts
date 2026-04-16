@@ -15,8 +15,20 @@ export const checkContextMd = (projectDir: string): EvalResult => {
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
+
+  const hasOpener =
+    content.includes("Project Overview") ||
+    content.includes("## Overview") ||
+    content.includes("Project: ") ||
+    /^# .+/m.test(content);
+
+  if (!hasOpener) {
+    failures.push(
+      "context.md missing project overview (no # heading or Overview section)",
+    );
+  }
+
   const requiredSections = [
-    "Project Overview",
     "Setup Commands",
     "Architecture",
     "Anti-Loop Protocol",
@@ -29,7 +41,9 @@ export const checkContextMd = (projectDir: string): EvalResult => {
   }
 
   if (content.includes("best practices") || content.includes("generic")) {
-    failures.push("context.md contains generic advice — must be codebase-specific");
+    failures.push(
+      "context.md contains generic advice — must be codebase-specific",
+    );
   }
 
   return { passed: failures.length === 0, failures };

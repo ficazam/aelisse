@@ -67,8 +67,10 @@ export const callTool = async (
       .join("\n");
   }
 
-  return result.content
+  const text = result.content
     .filter((b): b is { type: "text"; text: string } => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+
+  return text || "(empty)";
 };

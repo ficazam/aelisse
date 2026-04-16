@@ -78,8 +78,15 @@ server.registerTool(
           ],
         };
       }
+      const MAX_CHARS = 40_000;
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const text =
+        raw.length > MAX_CHARS
+          ? raw.slice(0, MAX_CHARS) +
+            `\n\n[truncated — file is ${raw.length} chars, showing first ${MAX_CHARS}]`
+          : raw;
       return {
-        content: [{ type: "text", text: fs.readFileSync(filePath, "utf-8") }],
+        content: [{ type: "text", text }],
       };
     } catch (err) {
       return {

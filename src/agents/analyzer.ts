@@ -63,10 +63,36 @@ Rules for skill files:
 - Only generate skills with confidence > 0.7.
 - Every skill must have detect_patterns — strings that, if found in the repo,
   indicate this skill is relevant.
-- Skills must have a quality checklist at the end.
 - Target subagents must be one of: frontend-engineer, backend-engineer,
   qa-engineer, devops-engineer, review-engineer, technical-writer.
+- Every skill content field must follow this exact markdown structure:
 
+---
+name: [skill-name]
+description: [one line]
+target_subagents:
+  - [subagent]
+category: [category]
+detect_patterns:
+  - "[pattern]"
+---
+
+# [Skill Title]
+
+[one line role statement]
+
+## When to use this skill
+[trigger description]
+
+## Steps
+[numbered steps with code examples]
+
+## Quality Checklist
+- [ ] [item]
+
+- The sections ## When to use this skill, ## Steps, and ## Quality Checklist
+  are mandatory. Do not substitute ## Overview, ## Prerequisites, or any
+  other heading. Use these exact section names.
 Rules for qa-features.yaml:
 - Only generate if test files were found in the explorer report.
 - Follow this exact schema: version, project, features[].

@@ -52,6 +52,14 @@ const runSubagent = async (
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
     );
 
+    if (toolUseBlocks.length === 0) {
+      // No tool calls and not end_turn (e.g. max_tokens) — return what we have
+      return response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
+    }
+
     const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
       toolUseBlocks.map(async (toolUse) => ({
         type: "tool_result" as const,
