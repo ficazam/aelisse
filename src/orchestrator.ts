@@ -17,16 +17,41 @@ import { checkSkillsDir } from "../evals/skill-check.js";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ── Cost tracking ──────────────────────────────────────────────────────────
+
+type UsageAccumulator = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+const usage: UsageAccumulator = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+};
+
+const COST_PER_MILLION_INPUT = 3.0; // claude-sonnet-4-6
+const COST_PER_MILLION_OUTPUT = 15.0;
+const COST_PER_MILLION_CACHE_READ = 0.3;
+const COST_PER_MILLION_CACHE_WRITE = 3.75;
+
+const estimateCost = (u: UsageAccumulator): number =>
+  (u.inputTokens / 1_000_000) * COST_PER_MILLION_INPUT +
+  (u.outputTokens / 1_000_000) * COST_PER_MILLION_OUTPUT +
+  (u.cacheReadTokens / 1_000_000) * COST_PER_MILLION_CACHE_READ +
+  (u.cacheWriteTokens / 1_000_000) * COST_PER_MILLION_CACHE_WRITE;
+
 // ── Subagent runner ────────────────────────────────────────────────────────
 
 const runSubagent = async (
   systemPrompt: string,
   task: string,
-  allowedTools: string[]
+  allowedTools: string[],
 ): Promise<string> => {
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: task },
-  ];
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: task }];
 
   const tools = getToolsForAgent(allowedTools);
   const MAX_ITERATIONS = 20;
@@ -36,12 +61,18 @@ const runSubagent = async (
     iterations++;
 
     const response = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-4-6", // was claude-opus-4-5
       max_tokens: 8192,
       system: systemPrompt,
       tools,
       messages,
     });
+
+    // accumulate token usage across all subagent calls
+    usage.inputTokens += response.usage.input_tokens;
+    usage.outputTokens += response.usage.output_tokens;
+    usage.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+    usage.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
 
     messages.push({ role: "assistant", content: response.content });
 
@@ -53,11 +84,10 @@ const runSubagent = async (
     }
 
     const toolUseBlocks = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
     if (toolUseBlocks.length === 0) {
-      // No tool calls and not end_turn (e.g. max_tokens) — return what we have
       return response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
@@ -70,9 +100,9 @@ const runSubagent = async (
         tool_use_id: toolUse.id,
         content: await callTool(
           toolUse.name,
-          toolUse.input as Record<string, unknown>
+          toolUse.input as Record<string, unknown>,
         ),
-      }))
+      })),
     );
 
     messages.push({ role: "user", content: toolResults });
@@ -88,12 +118,12 @@ const runExplorer = async (repoPath: string): Promise<string> =>
     EXPLORER_SYSTEM_PROMPT,
     `Explore this repository and produce the structured JSON report.
      Repository path: ${repoPath}`,
-    ["get_repo_context", "read_file", "list_files", "search_files"]
+    ["get_repo_context", "read_file", "list_files", "search_files"],
   );
 
 const runPlanner = async (
   projectName: string,
-  description: string
+  description: string,
 ): Promise<string> =>
   runSubagent(
     PLANNER_SYSTEM_PROMPT,
@@ -101,12 +131,12 @@ const runPlanner = async (
      Description: ${description}
      
      Produce the ExplorerReport JSON for this greenfield project.`,
-    [] // planner needs no tools — it reasons from description alone
+    [], // planner needs no tools — it reasons from description alone
   );
 
 const runAnalyzer = async (
   explorerReport: string,
-  repoPath: string
+  repoPath: string,
 ): Promise<string> =>
   runSubagent(
     ANALYZER_SYSTEM_PROMPT,
@@ -115,13 +145,13 @@ const runAnalyzer = async (
      
      Explorer report:
      ${explorerReport}`,
-    ["read_file"]
+    ["read_file"],
   );
 
 const runWriter = async (
   analyzerOutput: string,
   contextsRepoPath: string,
-  projectName: string
+  projectName: string,
 ): Promise<string> =>
   runSubagent(
     WRITER_SYSTEM_PROMPT,
@@ -131,14 +161,14 @@ const runWriter = async (
      
      AnalyzerOutput:
      ${analyzerOutput}`,
-    ["write_context_file"]
+    ["write_context_file"],
   );
 
 // ── Orchestrators ──────────────────────────────────────────────────────────
 
 export const runOrchestrator = async (
   repoPath: string,
-  contextsRepoPath: string
+  contextsRepoPath: string,
 ): Promise<void> => {
   await initMcpClient();
 
@@ -153,7 +183,11 @@ export const runOrchestrator = async (
     const analyzerOutput = await runAnalyzer(explorerReport, repoPath);
 
     console.log("Phase 3: Writing context files...");
-    const manifest = await runWriter(analyzerOutput, contextsRepoPath, projectName);
+    const manifest = await runWriter(
+      analyzerOutput,
+      contextsRepoPath,
+      projectName,
+    );
 
     console.log(`\nAelisse — ${projectName} is ready\n`);
     console.log(manifest);
@@ -163,7 +197,10 @@ export const runOrchestrator = async (
     const projectDir = path.join(contextsRepoPath, projectName);
     const results = [
       { name: "context.md structure", result: checkContextMd(projectDir) },
-      { name: "settings.json structure", result: checkSettingsJson(projectDir) },
+      {
+        name: "settings.json structure",
+        result: checkSettingsJson(projectDir),
+      },
       { name: "project-skills/ files", result: checkSkillsDir(projectDir) },
     ];
 
@@ -190,13 +227,25 @@ export const runOrchestrator = async (
       execSync(`git -C "${contextsRepoPath}" add .`, { stdio: "pipe" });
       execSync(
         `git -C "${contextsRepoPath}" commit -m "explore: ${projectName} context (via /explore)"`,
-        { stdio: "pipe" }
+        { stdio: "pipe" },
       );
       console.log(`  ✓ committed to aelisse-contexts`);
     } catch {
       console.log("  — nothing to commit (context unchanged)");
     }
 
+    // ── Phase 6: Cost summary ───────────────────────────────────────────
+    const totalCost = estimateCost(usage);
+    console.log("\nPhase 6: Cost summary");
+    console.log(`  input tokens:       ${usage.inputTokens.toLocaleString()}`);
+    console.log(`  output tokens:      ${usage.outputTokens.toLocaleString()}`);
+    console.log(
+      `  cache read tokens:  ${usage.cacheReadTokens.toLocaleString()}`,
+    );
+    console.log(
+      `  cache write tokens: ${usage.cacheWriteTokens.toLocaleString()}`,
+    );
+    console.log(`  estimated cost:     $${totalCost.toFixed(4)}`);
   } finally {
     await closeMcpClient();
   }
@@ -205,7 +254,7 @@ export const runOrchestrator = async (
 export const runGreenfieldOrchestrator = async (
   projectName: string,
   description: string,
-  contextsRepoPath: string
+  contextsRepoPath: string,
 ): Promise<void> => {
   await initMcpClient();
 
@@ -219,7 +268,11 @@ export const runGreenfieldOrchestrator = async (
     const analyzerOutput = await runAnalyzer(plannerReport, "");
 
     console.log("Phase 3: Writing context files...");
-    const manifest = await runWriter(analyzerOutput, contextsRepoPath, projectName);
+    const manifest = await runWriter(
+      analyzerOutput,
+      contextsRepoPath,
+      projectName,
+    );
 
     console.log(`\nAelisse — ${projectName} is ready\n`);
     console.log(manifest);
@@ -229,7 +282,10 @@ export const runGreenfieldOrchestrator = async (
     const projectDir = path.join(contextsRepoPath, projectName);
     const results = [
       { name: "context.md structure", result: checkContextMd(projectDir) },
-      { name: "settings.json structure", result: checkSettingsJson(projectDir) },
+      {
+        name: "settings.json structure",
+        result: checkSettingsJson(projectDir),
+      },
       { name: "project-skills/ files", result: checkSkillsDir(projectDir) },
     ];
 
@@ -256,13 +312,25 @@ export const runGreenfieldOrchestrator = async (
       execSync(`git -C "${contextsRepoPath}" add .`, { stdio: "pipe" });
       execSync(
         `git -C "${contextsRepoPath}" commit -m "explore: ${projectName} context (greenfield)"`,
-        { stdio: "pipe" }
+        { stdio: "pipe" },
       );
       console.log(`  ✓ committed to aelisse-contexts`);
     } catch {
       console.log("  — nothing to commit (context unchanged)");
     }
 
+    // ── Phase 6: Cost summary ───────────────────────────────────────────
+    const totalCost = estimateCost(usage);
+    console.log("\nPhase 6: Cost summary");
+    console.log(`  input tokens:       ${usage.inputTokens.toLocaleString()}`);
+    console.log(`  output tokens:      ${usage.outputTokens.toLocaleString()}`);
+    console.log(
+      `  cache read tokens:  ${usage.cacheReadTokens.toLocaleString()}`,
+    );
+    console.log(
+      `  cache write tokens: ${usage.cacheWriteTokens.toLocaleString()}`,
+    );
+    console.log(`  estimated cost:     $${totalCost.toFixed(4)}`);
   } finally {
     await closeMcpClient();
   }
@@ -281,7 +349,7 @@ if (contextsFlag === -1) {
   console.error("Error: --contexts is required");
   console.error(
     "Usage: aelisse --repo <path> --contexts <path>\n" +
-    "       aelisse --greenfield --name <name> --description <desc> --contexts <path>"
+      "       aelisse --greenfield --name <name> --description <desc> --contexts <path>",
   );
   process.exit(1);
 }
@@ -301,22 +369,26 @@ if (greenfieldFlag !== -1) {
   if (!projectName || !description) {
     console.error(
       "Greenfield mode requires --name and --description\n" +
-      "Example: aelisse --greenfield --name my-saas --description \"A Next.js SaaS with auth and billing\" --contexts <path>"
+        'Example: aelisse --greenfield --name my-saas --description "A Next.js SaaS with auth and billing" --contexts <path>',
     );
     process.exit(1);
   }
 
-  runGreenfieldOrchestrator(projectName, description, contextsPath).catch((err) => {
-    console.error("Fatal:", err);
-    process.exit(1);
-  });
+  runGreenfieldOrchestrator(projectName, description, contextsPath).catch(
+    (err) => {
+      console.error("Fatal:", err);
+      process.exit(1);
+    },
+  );
 } else {
   // explore mode
   const repoPath = repoFlag !== -1 ? args[repoFlag + 1] : null;
 
   if (!repoPath) {
-    console.error("Explore mode requires --repo\n" +
-      "Usage: aelisse --repo <path> --contexts <path>");
+    console.error(
+      "Explore mode requires --repo\n" +
+        "Usage: aelisse --repo <path> --contexts <path>",
+    );
     process.exit(1);
   }
 
