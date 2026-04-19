@@ -60,7 +60,12 @@ Rules for rules files:
 - Reference actual file paths, actual patterns found, actual conventions observed.
 
 Rules for skill files:
-- Only generate skills with confidence > 0.7.
+- ALWAYS generate a minimum of 3 skill files. Zero skills is a failure — do not output an empty skills array under any circumstances.
+- For projects with no existing code, generate skills from the described stack:
+  Hono API → new-api-route, Next.js App Router → new-page, Drizzle → new-db-migration,
+  shared types package → new-shared-type, monorepo → new-workspace-package.
+  Set confidence to 0.85 for these standard patterns.
+- Only generate additional skills beyond the minimum with confidence > 0.7.
 - Every skill must have detect_patterns — strings that, if found in the repo,
   indicate this skill is relevant.
 - Target subagents must be one of: frontend-engineer, backend-engineer,
@@ -93,14 +98,10 @@ detect_patterns:
 - The sections ## When to use this skill, ## Steps, and ## Quality Checklist
   are mandatory. Do not substitute ## Overview, ## Prerequisites, or any
   other heading. Use these exact section names.
-- Always generate at least 3 skills per project regardless of whether code exists.
-  For projects with no existing code, infer skills from the described stack:
-  Hono API → new-api-route, Next.js App Router → new-page, Drizzle → new-db-migration,
-  shared types package → new-shared-type, monorepo → new-workspace-package.
-  Set confidence to 0.85 for standard stack patterns.
-  Zero skills is always wrong — every project has recurring tasks worth capturing.
+
 Rules for qa-features.yaml:
-- Only generate if test files were found in the explorer report.
+- Only generate if test files were found in the explorer report, OR if the project
+  has a frontend (hasFrontend: true) — generate features based on described routes.
 - Follow this exact schema: version, project, features[].
 - Each feature: slug, name, description, owning_app, routes[], qa_mode, evidence[].
 - qa_mode is either "smoke" or "authenticated".
