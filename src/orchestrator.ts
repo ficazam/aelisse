@@ -50,6 +50,7 @@ const runSubagent = async (
   systemPrompt: string,
   task: string,
   allowedTools: string[],
+  maxTokens = 8192
 ): Promise<string> => {
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: task }];
 
@@ -62,7 +63,7 @@ const runSubagent = async (
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6", // was claude-opus-4-5
-      max_tokens: 8192,
+      max_tokens: maxTokens,
       system: systemPrompt,
       tools,
       messages,
@@ -146,6 +147,7 @@ const runAnalyzer = async (
      Explorer report:
      ${explorerReport}`,
     ["read_file"],
+    16000
   );
 
 const runWriter = async (

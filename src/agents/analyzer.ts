@@ -70,34 +70,36 @@ Rules for skill files:
   indicate this skill is relevant.
 - Target subagents must be one of: frontend-engineer, backend-engineer,
   qa-engineer, devops-engineer, review-engineer, technical-writer.
-- Every skill content field must follow this exact markdown structure:
+- Every skill content field must follow this exact markdown structure.
+  All four sections are MANDATORY — omitting any section is a failure:
 
 ---
 name: [skill-name]
-description: [one line]
+description: [one line description of what this skill does]
 target_subagents:
-  - [subagent]
-category: [category]
+  - [subagent-name]
+category: [general | qa | backend | frontend | infrastructure]
 detect_patterns:
-  - "[pattern]"
+  - "[string that indicates this skill is needed]"
 ---
 
 # [Skill Title]
 
-[one line role statement]
+[One sentence describing the agent's role when using this skill.]
 
 ## When to use this skill
-[trigger description]
+[Describe the trigger — when should an agent load and follow this skill?]
 
 ## Steps
-[numbered steps with code examples]
+[Numbered steps. Include code examples where relevant.]
 
 ## Quality Checklist
-- [ ] [item]
+- [ ] [Verification item 1]
+- [ ] [Verification item 2]
+- [ ] [Verification item 3]
 
-- The sections ## When to use this skill, ## Steps, and ## Quality Checklist
-  are mandatory. Do not substitute ## Overview, ## Prerequisites, or any
-  other heading. Use these exact section names.
+The four mandatory sections in order: When to use this skill, Steps, Quality Checklist.
+Missing any of these three sections means the skill is incomplete and must be regenerated.
 
 Rules for qa-features.yaml:
 - Only generate if test files were found in the explorer report, OR if the project
