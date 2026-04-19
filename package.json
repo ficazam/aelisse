@@ -12,7 +12,7 @@
   },
   "scripts": {
     "explore": "bun run src/orchestrator.ts",
-    "evals": "bun run evals/index.ts",
+    "eval": "bun run evals/index.ts \"$HOME/Documents/repos/aelisse-contexts\"",
     "server": "bun run src/mcp/server.ts",
     "typecheck": "tsc --noEmit"
   },
