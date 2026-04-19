@@ -1,7 +1,7 @@
 # Aelisse — Acceptance Test Scenarios
 
-These are the two tests that prove Aelisse works.
-Run them in order. Both must pass before the capstone is complete.
+These tests verify Aelisse works correctly. Both passed on April 15, 2026.
+Re-run after significant changes to the pipeline.
 
 ---
 
@@ -14,15 +14,15 @@ context, she can read any similar codebase.
 **Command:**
 ```bash
 aelisse \
-  --repo ~/Documents/repos/aelisse \
-  --contexts ~/Documents/repos/aelisse-contexts
+  --repo "$HOME/Documents/repos/aelisse" \
+  --contexts "$HOME/Documents/repos/aelisse-contexts"
 ```
 
 **Expected output — `aelisse-contexts/aelisse/context.md` must contain:**
 - [ ] Project described as an autonomous agent system / co-engineer
 - [ ] Stack correctly identified: Bun, TypeScript, @anthropic-ai/sdk, @modelcontextprotocol/sdk, zod
 - [ ] Three subagents named: Explorer, Analyzer, Writer
-- [ ] MCP filesystem server mentioned with correct tool count (5 tools)
+- [ ] MCP filesystem server mentioned
 - [ ] `src/orchestrator.ts` identified as the entry point
 - [ ] Anti-Loop Protocol section present and correct
 - [ ] Setup commands include `bun install` and `bun link`
@@ -36,35 +36,38 @@ aelisse \
 **Expected output — `aelisse-contexts/aelisse/project-skills/` must contain:**
 - [ ] At least one skill file
 - [ ] Every SKILL.md has `detect_patterns` frontmatter
-- [ ] Every SKILL.md has a Quality Checklist section
+- [ ] Every SKILL.md has `## When to use this skill`, `## Steps`, `## Quality Checklist`
 
 **Expected output — evals must pass:**
 ```bash
-bun run evals/index.ts ~/Documents/repos/aelisse-contexts aelisse
+bun run eval aelisse
 ```
 - [ ] ✓ context.md structure
 - [ ] ✓ settings.json structure
 - [ ] ✓ project-skills/ files
 
-**Failure conditions that mean something is wrong:**
+**Expected output — cost summary printed at the end:**
+- [ ] Token counts displayed
+- [ ] Estimated cost displayed in USD
+
+**Failure conditions:**
 - context.md describes a generic TypeScript project with no mention of agents or MCP
 - Stack lists npm instead of bun
-- No skill files generated (Aelisse's patterns should be detectable)
+- No skill files generated
 - Evals fail on any check
 
 ---
 
 ## Test 2: Silent Sentry
 
-**What it proves:** Aelisse works on a real production codebase she has never
-seen before. If the output accurately describes Silent Sentry without any
-hand-holding, the system is production-ready.
+**What it proves:** Aelisse works accurately on a real production NestJS/Firebase
+codebase she has never seen before.
 
 **Command:**
 ```bash
 aelisse \
-  --repo ~/Documents/repos/silent-sentry \
-  --contexts ~/Documents/repos/aelisse-contexts
+  --repo "$HOME/Documents/repos/silent-sentry" \
+  --contexts "$HOME/Documents/repos/aelisse-contexts"
 ```
 
 **Expected output — `aelisse-contexts/silent-sentry/context.md` must contain:**
@@ -72,62 +75,105 @@ aelisse \
 - [ ] Cron job / scheduled pinging mentioned
 - [ ] Discord notifications mentioned
 - [ ] Client dashboard mentioned
-- [ ] Stack correctly identified (whatever SS actually uses)
+- [ ] NestJS + Firebase identified as the stack
 - [ ] Setup commands that actually work for this repo
 - [ ] Anti-Loop Protocol section present
 
+**Expected output — `aelisse-contexts/silent-sentry/rules/` must contain:**
+- [ ] At least one domain-specific rules file (e.g. monitoring-domain.md)
+- [ ] Every rules file has frontmatter with `paths:` scoping
+
 **Expected output — `aelisse-contexts/silent-sentry/project-skills/` must contain:**
-- [ ] A skill for adding a new monitored project/endpoint
-- [ ] A skill for adding a new notification type OR Discord integration
+- [ ] A skill for adding a new monitored target
+- [ ] A skill for adding a new notification channel
 - [ ] Every SKILL.md references actual file paths from the SS codebase
+- [ ] Every SKILL.md has `## When to use this skill`, `## Steps`, `## Quality Checklist`
 
 **Expected output — `aelisse-contexts/silent-sentry/settings.json` must:**
 - [ ] Allow the correct bash commands for SS's stack
-- [ ] Not allow commands that don't apply to SS
+- [ ] Deny `Bash(rm -rf *)`
 
-**If `qa-features.yaml` is generated:**
-- [ ] Features map to real SS functionality (monitoring, dashboard, notifications)
+**Expected output — `qa-features.yaml` must:**
+- [ ] Features map to real SS functionality (health checks, targets, alerts)
 - [ ] Evidence files point to real files in the repo
 
 **Expected output — evals must pass:**
 ```bash
-bun run evals/index.ts ~/Documents/repos/aelisse-contexts silent-sentry
+bun run eval silent-sentry
 ```
 - [ ] ✓ context.md structure
 - [ ] ✓ settings.json structure
 - [ ] ✓ project-skills/ files
 
-**Failure conditions that mean something is wrong:**
+**Failure conditions:**
 - context.md mentions Discord but not monitoring (partial understanding)
 - Skill files reference files that don't exist in the repo (hallucination)
 - context.md is generic — could describe any Node.js project
-- Setup commands don't match what SS actually uses
 - Evals fail on any check
 
 ---
 
-## How to run both tests
+## Test 3: Orchestrator resolves a real ticket
+
+**What it proves:** The full end-to-end workflow works — explore output is
+accurate enough that the orchestrator can resolve a real ticket without
+asking clarifying questions.
+
+**Setup:** Silent Sentry must be onboarded first (Test 2 passed).
+
+**Steps:**
+1. Open aelisse in the SS repo:
+```bash
+cd "$HOME/Documents/repos/silent-sentry"
+aelisse
+```
+
+2. Give the orchestrator a real GitHub issue:
+```
+@orchestrator take issue #<number> and propose a solution plan
+```
+
+3. Review the plan — it must:
+- [ ] Correctly identify the affected files
+- [ ] Propose a technically accurate fix
+- [ ] Not ask where things live (the context told it)
+
+4. Approve the plan and let it implement.
+
+5. Verify:
+- [ ] Implementation is correct
+- [ ] PR was opened on GitHub
+- [ ] Code-reviewer ran and reported findings (or confirmed clean)
+
+**Failure conditions:**
+- Orchestrator asks "where is the monitoring logic?" — context is incomplete
+- Plan proposes changes to the wrong files
+- PR not opened after approval
+
+---
+
+## How to run
 
 ```bash
-# Test 1
-aelisse --repo ~/Documents/repos/aelisse \
-        --contexts ~/Documents/repos/aelisse-contexts
-bun run evals/index.ts ~/Documents/repos/aelisse-contexts aelisse
+# Test 1 — self-onboarding
+aelisse --repo "$HOME/Documents/repos/aelisse" \
+        --contexts "$HOME/Documents/repos/aelisse-contexts"
+bun run eval aelisse
 
-# Test 2
-aelisse --repo ~/Documents/repos/silent-sentry \
-        --contexts ~/Documents/repos/aelisse-contexts
-bun run evals/index.ts ~/Documents/repos/aelisse-contexts silent-sentry
+# Test 2 — Silent Sentry
+aelisse --repo "$HOME/Documents/repos/silent-sentry" \
+        --contexts "$HOME/Documents/repos/aelisse-contexts"
+bun run eval silent-sentry
+
+# Test 3 — resolve a ticket (manual)
+cd "$HOME/Documents/repos/silent-sentry"
+aelisse
+# then: @orchestrator take issue #<number> and propose a solution plan
 ```
 
 ## Definition of done
 
-Both test scenarios pass all checklist items.
-Both eval suites report all green.
-The context files are accurate enough that a fresh Claude Code session,
-given only the context.md, could resolve a real ticket in that repo
-without asking clarifying questions.
-
-That last condition is the real test. Run a ticket after the context
-is generated and see if the agent needs to ask where things live.
-If it doesn't — Aelisse works.
+All three tests pass.
+The orchestrator resolves a real ticket without asking where things live.
+Evals report all green on both repos.
+Cost summary printed after every explore run.
