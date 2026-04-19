@@ -10,6 +10,10 @@ import { EXPLORER_SYSTEM_PROMPT } from "./agents/explorer.js";
 import { ANALYZER_SYSTEM_PROMPT } from "./agents/analyzer.js";
 import { WRITER_SYSTEM_PROMPT } from "./agents/writer.js";
 import { PLANNER_SYSTEM_PROMPT } from "./agents/planner.js";
+import { execSync } from "child_process";
+import { checkContextMd } from "../evals/output-check.js";
+import { checkSettingsJson } from "../evals/settings-check.js";
+import { checkSkillsDir } from "../evals/skill-check.js";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -153,6 +157,46 @@ export const runOrchestrator = async (
 
     console.log(`\nAelisse — ${projectName} is ready\n`);
     console.log(manifest);
+
+    // ── Phase 4: Evals ──────────────────────────────────────────────────
+    console.log("\nPhase 4: Running evals...");
+    const projectDir = path.join(contextsRepoPath, projectName);
+    const results = [
+      { name: "context.md structure", result: checkContextMd(projectDir) },
+      { name: "settings.json structure", result: checkSettingsJson(projectDir) },
+      { name: "project-skills/ files", result: checkSkillsDir(projectDir) },
+    ];
+
+    let allPassed = true;
+    for (const { name, result } of results) {
+      if (result.passed) {
+        console.log(`  ✓ ${name}`);
+      } else {
+        allPassed = false;
+        console.error(`  ✗ ${name}`);
+        for (const failure of result.failures) {
+          console.error(`      → ${failure}`);
+        }
+      }
+    }
+
+    if (!allPassed) {
+      console.error("\nEvals failed — context may be incomplete.");
+    }
+
+    // ── Phase 5: Auto-commit ────────────────────────────────────────────
+    console.log("\nPhase 5: Committing context...");
+    try {
+      execSync(`git -C "${contextsRepoPath}" add .`, { stdio: "pipe" });
+      execSync(
+        `git -C "${contextsRepoPath}" commit -m "explore: ${projectName} context (via /explore)"`,
+        { stdio: "pipe" }
+      );
+      console.log(`  ✓ committed to aelisse-contexts`);
+    } catch {
+      console.log("  — nothing to commit (context unchanged)");
+    }
+
   } finally {
     await closeMcpClient();
   }
@@ -179,6 +223,46 @@ export const runGreenfieldOrchestrator = async (
 
     console.log(`\nAelisse — ${projectName} is ready\n`);
     console.log(manifest);
+
+    // ── Phase 4: Evals ──────────────────────────────────────────────────
+    console.log("\nPhase 4: Running evals...");
+    const projectDir = path.join(contextsRepoPath, projectName);
+    const results = [
+      { name: "context.md structure", result: checkContextMd(projectDir) },
+      { name: "settings.json structure", result: checkSettingsJson(projectDir) },
+      { name: "project-skills/ files", result: checkSkillsDir(projectDir) },
+    ];
+
+    let allPassed = true;
+    for (const { name, result } of results) {
+      if (result.passed) {
+        console.log(`  ✓ ${name}`);
+      } else {
+        allPassed = false;
+        console.error(`  ✗ ${name}`);
+        for (const failure of result.failures) {
+          console.error(`      → ${failure}`);
+        }
+      }
+    }
+
+    if (!allPassed) {
+      console.error("\nEvals failed — context may be incomplete.");
+    }
+
+    // ── Phase 5: Auto-commit ────────────────────────────────────────────
+    console.log("\nPhase 5: Committing context...");
+    try {
+      execSync(`git -C "${contextsRepoPath}" add .`, { stdio: "pipe" });
+      execSync(
+        `git -C "${contextsRepoPath}" commit -m "explore: ${projectName} context (greenfield)"`,
+        { stdio: "pipe" }
+      );
+      console.log(`  ✓ committed to aelisse-contexts`);
+    } catch {
+      console.log("  — nothing to commit (context unchanged)");
+    }
+
   } finally {
     await closeMcpClient();
   }
