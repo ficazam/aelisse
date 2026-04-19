@@ -27,7 +27,7 @@ Output this exact JSON shape and nothing else:
       "description": string,
       "targetSubagents": string[],
       "category": "general" | "qa" | "backend" | "frontend" | "infrastructure",
-      "detectPatterns": string[],
+      "paths": string[],
       "confidence": number,
       "content": string
     }
@@ -66,8 +66,13 @@ Rules for skill files:
   shared types package → new-shared-type, monorepo → new-workspace-package.
   Set confidence to 0.85 for these standard patterns.
 - Only generate additional skills beyond the minimum with confidence > 0.7.
-- Every skill must have detect_patterns — strings that, if found in the repo,
-  indicate this skill is relevant.
+- Every skill must have a paths field — glob patterns that tell Claude Code when
+  to auto-load this skill. Examples:
+  "**/*.module.ts" for NestJS modules
+  "**/routes/*.ts" for API routes  
+  "**/components/**/*.tsx" for React components
+  "**/*.migration.ts" for database migrations
+  Use the actual file patterns from this codebase.
 - Target subagents must be one of: frontend-engineer, backend-engineer,
   qa-engineer, devops-engineer, review-engineer, technical-writer.
 - Every skill content field must follow this exact markdown structure.
@@ -79,8 +84,7 @@ description: [one line description of what this skill does]
 target_subagents:
   - [subagent-name]
 category: [general | qa | backend | frontend | infrastructure]
-detect_patterns:
-  - "[string that indicates this skill is needed]"
+paths: "[glob pattern matching files this skill applies to, comma-separated]"
 ---
 
 # [Skill Title]

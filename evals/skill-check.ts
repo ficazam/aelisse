@@ -21,7 +21,7 @@ const checkSingleSkill = (skillDir: string, skillName: string): string[] => {
     "description:",
     "target_subagents:",
     "category:",
-    "detect_patterns:",
+    "paths:",
   ];
 
   for (const field of requiredFrontmatterFields) {
