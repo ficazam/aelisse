@@ -93,6 +93,12 @@ detect_patterns:
 - The sections ## When to use this skill, ## Steps, and ## Quality Checklist
   are mandatory. Do not substitute ## Overview, ## Prerequisites, or any
   other heading. Use these exact section names.
+- For greenfield projects (where the explorer report notes contain "Greenfield project —
+  no existing code"), always generate skills based on the described stack and domain.
+  Infer recurring tasks from the architecture — a Hono API → new-api-route skill,
+  Next.js → new-page skill, Drizzle → new-db-migration skill, shared types package →
+  new-shared-type skill. Set confidence to 0.85 for standard stack patterns.
+  Greenfield skills must still follow the exact markdown structure above.
 Rules for qa-features.yaml:
 - Only generate if test files were found in the explorer report.
 - Follow this exact schema: version, project, features[].
