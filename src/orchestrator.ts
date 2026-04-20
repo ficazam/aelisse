@@ -1,21 +1,33 @@
-import Anthropic from "@anthropic-ai/sdk";
 import * as path from "path";
 import {
   initMcpClient,
   closeMcpClient,
   getToolsForAgent,
   callTool,
-} from "./mcp/client.js";
-import { EXPLORER_SYSTEM_PROMPT } from "./agents/explorer.js";
-import { ANALYZER_SYSTEM_PROMPT } from "./agents/analyzer.js";
-import { WRITER_SYSTEM_PROMPT } from "./agents/writer.js";
-import { PLANNER_SYSTEM_PROMPT } from "./agents/planner.js";
+} from "./mcp/client";
+import { EXPLORER_SYSTEM_PROMPT } from "./agents/explorer";
+import { ANALYZER_SYSTEM_PROMPT } from "./agents/analyzer";
+import { WRITER_SYSTEM_PROMPT } from "./agents/writer";
+import { PLANNER_SYSTEM_PROMPT } from "./agents/planner";
 import { execSync } from "child_process";
-import { checkContextMd } from "../evals/output-check.js";
-import { checkSettingsJson } from "../evals/settings-check.js";
-import { checkSkillsDir } from "../evals/skill-check.js";
+import { checkContextMd } from "../evals/output-check";
+import { checkSettingsJson } from "../evals/settings-check";
+import { checkSkillsDir } from "../evals/skill-check";
+import {
+  createLLMClient,
+  getModel,
+  type CompletionResponse,
+} from "./llm/index.js";
+import type {
+  Message,
+  Tool,
+  ToolUseBlock,
+  TextBlock,
+  ToolResultBlock,
+} from "./llm/types";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const llmClient = createLLMClient();
+const MODEL = getModel();
 
 // ── Cost tracking ──────────────────────────────────────────────────────────
 
@@ -44,32 +56,51 @@ const estimateCost = (u: UsageAccumulator): number =>
   (u.cacheReadTokens / 1_000_000) * COST_PER_MILLION_CACHE_READ +
   (u.cacheWriteTokens / 1_000_000) * COST_PER_MILLION_CACHE_WRITE;
 
+const jobId = process.env.AELISSE_JOB_ID;
+
+const emit = (
+  agentName: string,
+  type: "started" | "progress" | "completed" | "error",
+  message: string,
+  cost?: number,
+): void => {
+  if (!jobId) return;
+  process.stdout.write(
+    JSON.stringify({
+      jobId,
+      agentName,
+      type,
+      message,
+      cost: cost ?? 0,
+      timestamp: new Date().toISOString(),
+    }) + "\n",
+  );
+};
+
 // ── Subagent runner ────────────────────────────────────────────────────────
 
 const runSubagent = async (
   systemPrompt: string,
   task: string,
   allowedTools: string[],
-  maxTokens = 8192
+  maxTokens = 8192,
 ): Promise<string> => {
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: task }];
-
-  const tools = getToolsForAgent(allowedTools);
+  const messages: Message[] = [{ role: "user", content: task }];
+  const tools = getToolsForAgent(allowedTools) as Tool[];
   const MAX_ITERATIONS = 20;
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6", // was claude-opus-4-5
+    const response: CompletionResponse = await llmClient.complete({
+      model: MODEL,
       max_tokens: maxTokens,
       system: systemPrompt,
       tools,
       messages,
     });
 
-    // accumulate token usage across all subagent calls
     usage.inputTokens += response.usage.input_tokens;
     usage.outputTokens += response.usage.output_tokens;
     usage.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
@@ -79,23 +110,23 @@ const runSubagent = async (
 
     if (response.stop_reason === "end_turn") {
       return response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .filter((b): b is TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n");
     }
 
     const toolUseBlocks = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+      (b): b is ToolUseBlock => b.type === "tool_use",
     );
 
     if (toolUseBlocks.length === 0) {
       return response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .filter((b): b is TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n");
     }
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+    const toolResults: ToolResultBlock[] = await Promise.all(
       toolUseBlocks.map(async (toolUse) => ({
         type: "tool_result" as const,
         tool_use_id: toolUse.id,
@@ -132,7 +163,7 @@ const runPlanner = async (
      Description: ${description}
      
      Produce the ExplorerReport JSON for this greenfield project.`,
-    [], // planner needs no tools — it reasons from description alone
+    [],
   );
 
 const runAnalyzer = async (
@@ -147,7 +178,7 @@ const runAnalyzer = async (
      Explorer report:
      ${explorerReport}`,
     ["read_file"],
-    16000
+    16000,
   );
 
 const runWriter = async (
@@ -338,6 +369,56 @@ export const runGreenfieldOrchestrator = async (
   }
 };
 
+export const runPromptOrchestrator = async (
+  prompt: string,
+  contextsRepoPath: string,
+): Promise<void> => {
+  await initMcpClient();
+
+  try {
+    emit("orchestrator", "started", "Aelisse is starting");
+
+    // Explorer reads the repo specified in the prompt
+    emit("explorer", "started", "Reading task and context");
+    const explorerReport = await runSubagent(
+      EXPLORER_SYSTEM_PROMPT,
+      `You are given a task prompt to analyze. Produce a structured JSON report.
+       Task: ${prompt}
+       Contexts path: ${contextsRepoPath}`,
+      ["get_repo_context", "read_file", "list_files", "search_files"],
+    );
+    emit("explorer", "completed", "Task analysis complete");
+
+    emit("analyzer", "started", "Planning implementation");
+    const analyzerOutput = await runAnalyzer(explorerReport, "");
+    emit("analyzer", "completed", "Plan ready");
+
+    emit("writer", "started", "Executing task");
+    const manifest = await runWriter(
+      analyzerOutput,
+      contextsRepoPath,
+      "prompt-task",
+    );
+    emit("writer", "completed", manifest, estimateCost(usage));
+
+    emit("orchestrator", "completed", "Task complete", estimateCost(usage));
+
+    const totalCost = estimateCost(usage);
+    if (!jobId) {
+      console.log(`\nComplete. Cost: $${totalCost.toFixed(4)}`);
+    }
+  } catch (err) {
+    emit(
+      "orchestrator",
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err;
+  } finally {
+    await closeMcpClient();
+  }
+};
+
 // ── CLI entry point ────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -346,6 +427,7 @@ const contextsFlag = args.indexOf("--contexts");
 const greenfieldFlag = args.indexOf("--greenfield");
 const nameFlag = args.indexOf("--name");
 const descFlag = args.indexOf("--description");
+const promptFlag = args.indexOf("--prompt");
 
 if (contextsFlag === -1) {
   console.error("Error: --contexts is required");
@@ -382,6 +464,17 @@ if (greenfieldFlag !== -1) {
       process.exit(1);
     },
   );
+} else if (promptFlag !== -1) {
+  // prompt mode — for Farm UI
+  const prompt = args[promptFlag + 1];
+  if (!prompt) {
+    console.error("Prompt mode requires a value after --prompt");
+    process.exit(1);
+  }
+  runPromptOrchestrator(prompt, contextsPath).catch((err) => {
+    console.error("Fatal:", err);
+    process.exit(1);
+  });
 } else {
   // explore mode
   const repoPath = repoFlag !== -1 ? args[repoFlag + 1] : null;
